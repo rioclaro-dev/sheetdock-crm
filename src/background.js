@@ -261,10 +261,16 @@ export class CRMService {
     const incomingFields = validateFields(backup.fields);
     const incomingRoles = validateRoles(backup.roles, incomingFields);
     const next = clone(this.store);
-    const merged = [...next.local.fields];
+    // Restoring into an empty base adopts the backup's complete schema. Defaults
+    // must not reintroduce required fields, labels or roles the user customized.
+    const merged = next.local.records.length ? [...next.local.fields] : [];
     for (const field of incomingFields) {
       const existing = merged.find(item => item.key === field.key);
       if (existing && (existing.type !== field.type || existing.type === "select" && JSON.stringify(existing.options) !== JSON.stringify(field.options))) throw new CRMError("BACKUP_SCHEMA_CONFLICT", `O campo ${field.key} tem um tipo ou opções diferentes na base atual. Ajuste o backup antes de importar.`);
+      if (existing && field.readOnly && !existing.readOnly) {
+        if (next.local.records.length) throw new CRMError("BACKUP_SCHEMA_CONFLICT", `O campo ${field.key} é somente leitura no backup e editável na base atual. Ajuste os campos antes de importar para preservar essa configuração.`);
+        existing.readOnly = true;
+      }
       if (!existing) merged.push(field);
     }
     const fields = validateFields(merged);
@@ -274,8 +280,19 @@ export class CRMService {
     for (const source of backup.records) {
       if (!source?.values || typeof source.values !== "object" || Array.isArray(source.values)) throw new CRMError("INVALID_BACKUP", "Um contato do backup não possui valores válidos.");
       const input = {};
-      for (const field of fields) if (field.key !== incomingRoles.id && field.key !== roles.id && !field.readOnly && Object.hasOwn(source.values, field.key)) input[field.key] = source.values[field.key];
-      const values = validateValues(input, fields, { countryCode, idKey: roles.id });
+      const snapshots = {};
+      for (const field of fields) {
+        if (field.key === incomingRoles.id || field.key === roles.id || !Object.hasOwn(source.values, field.key)) continue;
+        const value = source.values[field.key] ?? "";
+        if (field.readOnly) {
+          // Readonly exports are literal snapshots, including computed text or
+          // formula error strings. Keep their scalar values without evaluating
+          // expressions or granting ordinary CONTACT_SAVE permission to change them.
+          if (!["string", "number", "boolean"].includes(typeof value) || typeof value === "number" && !Number.isFinite(value) || typeof value === "string" && value.length > 30000) throw new CRMError("INVALID_VALUE", `O valor somente leitura de ${field.label} no backup é inválido ou muito longo.`);
+          snapshots[field.key] = value;
+        } else input[field.key] = value;
+      }
+      const values = { ...validateValues(input, fields, { countryCode, idKey: roles.id }), ...snapshots };
       const id = this.uuid(); values[roles.id] = id; records.push({ id, values });
     }
     assertUniqueIds(records, roles.id);

@@ -301,6 +301,72 @@ test("failed persistent writes do not partially apply an import in memory", asyn
   assert.equal((await service.dispatch({ type: "STATE" })).records.length, 0);
 });
 
+test("backup imports preserve literal readonly text and numeric snapshots while regenerating IDs", async () => {
+  const { service } = localService();
+  const fields = [...clone(DEFAULT_FIELDS),
+    { key: "computed_text", label: "Computed text", type: "text", readOnly: true },
+    { key: "computed_number", label: "Computed number", type: "number", readOnly: true },
+  ];
+  const backup = { format: "sheetdock-backup", version: 1, fields, roles: clone(DEFAULT_ROLES), records: [{ values: { id: "original-id", nome: "Synthetic Alice", computed_text: '=IMPORTXML("https://example.invalid")', computed_number: 42.5 } }] };
+  const state = await service.dispatch({ type: "IMPORT_BACKUP", payload: { backup } });
+  const record = state.records[0];
+  assert.notEqual(record.id, "original-id"); assert.equal(record.values.id, record.id);
+  assert.equal(record.values.computed_text, '=IMPORTXML("https://example.invalid")');
+  assert.equal(record.values.computed_number, 42.5);
+  assert.equal(state.fields.find(field => field.key === "computed_text").readOnly, true);
+  assert.equal(state.fields.find(field => field.key === "computed_number").readOnly, true);
+  await assert.rejects(service.dispatch({ type: "CONTACT_SAVE", payload: { id: record.id, expected: record.values, values: { ...record.values, computed_number: 99 } } }), errorCode("READ_ONLY"));
+});
+
+test("invalid readonly object snapshots abort the complete backup import before persistence", async () => {
+  const { service, storage } = localService();
+  let writes = 0; const write = storage.write.bind(storage); storage.write = async value => { writes++; await write(value); };
+  const fields = [...clone(DEFAULT_FIELDS), { key: "computed", label: "Computed", type: "text", readOnly: true }];
+  const backup = { format: "sheetdock-backup", version: 1, fields, roles: clone(DEFAULT_ROLES), records: [
+    { values: { id: "old-a", nome: "Synthetic Alice", computed: "valid snapshot" } },
+    { values: { id: "old-b", nome: "Synthetic Bruno", computed: { unexpected: "object" } } },
+  ] };
+  await assert.rejects(service.dispatch({ type: "IMPORT_BACKUP", payload: { backup } }), errorCode("INVALID_VALUE"));
+  assert.equal(writes, 0);
+  const state = await service.dispatch({ type: "STATE" });
+  assert.equal(state.records.length, 0); assert.equal(state.fields.some(field => field.key === "computed"), false);
+});
+
+test("readonly flags restore on a fresh base and cannot silently restrict an existing editable column", async () => {
+  const { service } = localService();
+  const fields = clone(DEFAULT_FIELDS); fields.find(field => field.key === "observacoes").readOnly = true;
+  const backup = { format: "sheetdock-backup", version: 1, fields, roles: clone(DEFAULT_ROLES), records: [{ values: { nome: "Synthetic Alice", observacoes: "Computed note" } }] };
+  const restored = await service.dispatch({ type: "IMPORT_BACKUP", payload: { backup } });
+  assert.equal(restored.fields.find(field => field.key === "observacoes").readOnly, true);
+  assert.equal(restored.records[0].values.observacoes, "Computed note");
+  const { service: existingService } = localService();
+  await existingService.dispatch({ type: "CONTACT_SAVE", payload: { values: { nome: "Existing", observacoes: "Editable note" } } });
+  await assert.rejects(existingService.dispatch({ type: "IMPORT_BACKUP", payload: { backup } }), errorCode("BACKUP_SCHEMA_CONFLICT"));
+  const existing = await existingService.dispatch({ type: "STATE" });
+  assert.equal(existing.records.length, 1); assert.equal(existing.records[0].values.observacoes, "Editable note");
+  assert.equal(Boolean(existing.fields.find(field => field.key === "observacoes").readOnly), false);
+});
+
+test("a fresh backup restore adopts customized labels, required flags, hidden fields and name role", async () => {
+  const { service } = localService();
+  const fields = [
+    { key: "id", label: "Meu identificador", type: "text", readOnly: true, hidden: true },
+    { key: "nome", label: "Apelido opcional", type: "text" },
+    { key: "cliente", label: "Nome principal", type: "text", required: true },
+    { key: "interno", label: "Nota interna", type: "textarea", hidden: true },
+  ];
+  const backup = { format: "sheetdock-backup", version: 1, fields, roles: { id: "id", name: "cliente" }, records: [{ values: { id: "old-id", cliente: "Pessoa Sintética", nome: "", interno: "Dado preservado" } }] };
+  const state = await service.dispatch({ type: "IMPORT_BACKUP", payload: { backup } });
+  assert.deepEqual(state.fields, fields);
+  assert.equal(state.config.roles.name, "cliente");
+  assert.equal(state.config.roles.phone, "");
+  assert.equal(state.records[0].values.nome, "");
+  assert.equal(state.records[0].values.cliente, "Pessoa Sintética");
+  assert.equal(state.records[0].values.interno, "Dado preservado");
+  assert.notEqual(state.records[0].id, "old-id");
+  assert.equal(state.fields.some(field => field.key === "telefone"), false);
+});
+
 test("clearing local data requires an explicit confirmation and resets contacts and custom configuration", async () => {
   const { service } = localService();
   await service.dispatch({ type: "CONTACT_SAVE", payload: { values: { nome: "Synthetic Alice" } } });

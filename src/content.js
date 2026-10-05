@@ -211,6 +211,7 @@
     const previousId = activeRecordId;
     const previousSignature = identitySignature;
     const previousReason = selectionReason;
+    const previousWasManual = previousReason === 'Seleção manual · vínculo ainda não confirmado';
     try {
       const result = await rpc(refresh ? 'REFRESH' : 'STATE');
       if (version !== readVersion) return;
@@ -222,7 +223,9 @@
       identity = readIdentity();
       identitySignature = signature(identity);
       pickAutomatic();
-      if (!sourceChanged && !activeRecordId && previousSignature === identitySignature && result.records?.some(record => record.id === previousId)) {
+      // Preserve a deliberate selection, never revive an automatic match that
+      // the refreshed records made ambiguous or whose confirmed link vanished.
+      if (previousWasManual && !sourceChanged && !activeRecordId && previousSignature === identitySignature && result.records?.some(record => record.id === previousId)) {
         activeRecordId = previousId;
         selectionReason = previousReason;
       }

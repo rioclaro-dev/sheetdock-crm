@@ -11,7 +11,7 @@ Nome provisório: **SheetDock CRM**. Código público: [rioclaro-dev/sheetdock-c
 - Campos de texto, parágrafo, número, data, opções, checkbox, e-mail, telefone e URL.
 - Etapas do funil, cadastro de contatos e vínculo explícito entre uma conversa e um contato.
 - Modelos de resposta que você copia e utiliza manualmente.
-- Exportação dos registros em JSON e CSV, reimportação atômica de backup e exclusão local com confirmação.
+- Exportação dos registros em JSON e CSV, reimportação atômica de backup e exclusão local com confirmação. O backup restaura campos e valores somente leitura como snapshots; IDs são novos e vínculos de conversa precisam ser confirmados novamente.
 - Modo local, que funciona sem conta Google, e conexão direta à Google Sheets API.
 
 A instalação começa vazia. O modo de demonstração, quando acionado, usa contatos fictícios e identifica esses dados como demonstração. Não há conexão com um CRM privado nem dados de clientes pré-carregados.

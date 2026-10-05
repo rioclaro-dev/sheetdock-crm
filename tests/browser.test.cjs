@@ -51,6 +51,8 @@ async function setup({ name = 'Maya Demo', state = fixtureState() } = {}) {
   await page.evaluate(({ state, name }) => {
     window.fixtureState = structuredClone(state);
     window.rpcLog = [];
+    window.rpcResolved = [];
+    window.rpcDelays = {};
     window.copiedTexts = [];
     window.fixtureConflict = false;
     const header = document.querySelector('#main header span');
@@ -80,7 +82,11 @@ async function setup({ name = 'Maya Demo', state = fixtureState() } = {}) {
             response = { ok: true, data: structuredClone(window.fixtureState) };
           } else if (message.type === 'OPEN_DASHBOARD') response = { ok: true, data: null };
           else response = { ok: false, error: { code: 'UNKNOWN', message: 'RPC inesperado.' } };
-          setTimeout(() => callback(response), 0);
+          setTimeout(() => {
+            callback(response);
+            // loadState resumes and renders in its promise microtask first.
+            queueMicrotask(() => window.rpcResolved.push(structuredClone(message)));
+          }, window.rpcDelays[message.type] || 0);
         },
       },
       storage: { local: { get(_keys, callback) { callback({}); }, set() {} } },
@@ -106,6 +112,12 @@ async function switchChat(page, name) {
 
 async function writes(page) {
   return page.evaluate(() => window.rpcLog.filter(message => ['CONTACT_SAVE', 'LINK_CHAT'].includes(message.type)));
+}
+
+async function refreshState(page) {
+  const expected = await page.evaluate(() => window.rpcResolved.filter(message => message.type === 'REFRESH').length + 1);
+  await page.getByRole('button', { name: 'Atualizar', exact: true }).click();
+  await page.waitForFunction(count => window.rpcResolved.filter(message => message.type === 'REFRESH').length >= count, expected);
 }
 
 test('panel starts collapsed; a matching display name requires explicit selection', async () => {
@@ -135,9 +147,25 @@ test('unique visible phone matches exactly; duplicated phone and message-only ph
     await switchChat(page, 'Unknown Demo');
     assert.equal(await page.getByRole('combobox', { name: 'Selecionar contato do CRM' }).inputValue(), '');
     await page.evaluate(() => window.fixtureState.records.push({ id: 'duplicate', values: { name: 'Other Demo', phone: '+55 11 90000-1001' } }));
-    await page.getByRole('button', { name: 'Atualizar', exact: true }).click();
+    await refreshState(page);
     await switchChat(page, '+55 11 90000-1001');
     assert.equal(await page.getByRole('combobox', { name: 'Selecionar contato do CRM' }).inputValue(), '');
+    assert.deepEqual(await writes(page), []);
+  } finally { await page.close(); }
+});
+
+test('refresh revokes an automatic match when the same visible phone becomes duplicated', async () => {
+  const page = await setup({ name: '+55 11 90000-1001' });
+  try {
+    await openPanel(page);
+    assert.equal(await page.getByRole('combobox', { name: 'Selecionar contato do CRM' }).inputValue(), 'c1');
+    await page.evaluate(() => {
+      window.fixtureState.records.push({ id: 'duplicate', values: { name: 'Other Demo', phone: '+55 11 90000-1001' } });
+      window.rpcDelays.REFRESH = 40;
+    });
+    await refreshState(page);
+    assert.equal(await page.getByRole('combobox', { name: 'Selecionar contato do CRM' }).inputValue(), '');
+    assert.equal(await page.getByRole('button', { name: 'Salvar contato', exact: true }).count(), 0);
     assert.deepEqual(await writes(page), []);
   } finally { await page.close(); }
 });

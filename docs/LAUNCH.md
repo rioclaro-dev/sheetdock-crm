@@ -76,7 +76,7 @@ No Brasil, agentes de pequeno porte dispensados de encarregado ainda precisam di
 
 | Item | Evidência esperada | Situação inicial |
 |---|---|---|
-| Testes locais | `npm test`, `npm run test:browser` e `npm run check` sem falhas | 45/45 testes locais e auditoria passaram; veja VALIDATION.md |
+| Testes locais | `npm test`, `npm run test:browser` e `npm run check` sem falhas | 50/50 testes locais e auditoria passaram; veja VALIDATION.md |
 | Pacote | ZIP inspecionado, sem dados pessoais ou segredos | ZIP local beta conferido: 19 arquivos e CRC válidos; veja VALIDATION.md |
 | Onboarding | Pessoa nova instala e cadastra contato sem assistência técnica | Pendente |
 | WhatsApp real | Conta autorizada usada no fluxo completo, inclusive troca de conversa | Pendente |
