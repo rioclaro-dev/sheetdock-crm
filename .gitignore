@@ -1,0 +1,15 @@
+node_modules/
+dist/
+artifacts/
+.env
+.env.*
+*.pem
+*.key
+client_secret_*.json
+secrets.json
+*.zip
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+local-config.json

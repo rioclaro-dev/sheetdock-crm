@@ -1,0 +1,23 @@
+import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';
+import {check,root,walk} from './check.mjs';
+const manifest=check();const args=process.argv.slice(2);const readArg=name=>{const at=args.indexOf(name);return at<0?'':args[at+1]||'';};
+const clientId=readArg('--client-id'),publicKey=readArg('--public-key');
+if(args.some((v,i)=>i%2===0&&!['--client-id','--public-key'].includes(v)))throw new Error('Unknown package argument');
+if(!!clientId!==!!publicKey)throw new Error('Provide both NEW product OAuth client ID and public extension key for a Google-enabled package.');
+const prohibitedCredentialHashes=new Set(['fc59640dbcaa9d45a896275d974a39d40f0b331f14a8efcdb59ee37962b16b49','dfcf8c34730dc050c1575785b1c4a4d280cb1135428572ce06b3011e022228cf']);
+if(clientId){if(!/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(clientId)||[clientId,publicKey].some(value=>prohibitedCredentialHashes.has(crypto.createHash('sha256').update(value).digest('hex'))))throw new Error('Invalid OAuth client ID or reused private-product configuration.');if(!/^[A-Za-z0-9+/]+={0,2}$/.test(publicKey)||Buffer.from(publicKey,'base64').length<128)throw new Error('Invalid public key. Never use a private key.');let key;try{key=crypto.createPublicKey({key:Buffer.from(publicKey,'base64'),format:'der',type:'spki'});}catch{throw new Error('Extension key must be a public SPKI DER key encoded as Base64.');}if(key.asymmetricKeyType!=='rsa')throw new Error('Use an RSA public extension key.');manifest.key=publicKey;manifest.oauth2={client_id:clientId,scopes:['https://www.googleapis.com/auth/spreadsheets']};}
+const variant=clientId?'google-beta':'local-beta';const distRoot=path.resolve(root,'dist');const out=path.resolve(distRoot,`sheetdock-crm-${variant}`);
+// Output is always a new allowlisted staging tree. No source data, Git history or docs are copied.
+if(path.dirname(out)!==distRoot||!/^sheetdock-crm-(local|google)-beta$/.test(path.basename(out)))throw new Error('Unsafe output directory');
+if(fs.existsSync(out)){if(fs.lstatSync(out).isSymbolicLink())throw new Error('Output directory must not be a symbolic link');fs.rmSync(out,{recursive:true,force:true});}
+fs.mkdirSync(out,{recursive:true});for(const name of ['src','icons'])fs.cpSync(path.join(root,name),path.join(out,name),{recursive:true});fs.writeFileSync(path.join(out,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
+const allowed=['manifest.json',...walk(path.join(out,'src')).map(f=>path.relative(out,f).replaceAll('\\','/')),...walk(path.join(out,'icons')).map(f=>path.relative(out,f).replaceAll('\\','/'))].sort();
+for(const name of allowed){if(!/^(manifest\.json|src\/[\w/.-]+\.(js|css|html)|icons\/[\w.-]+\.(png|svg))$/.test(name))throw new Error(`Unexpected package file ${name}`);}
+const crcTable=Array.from({length:256},(_,n)=>{for(let i=0;i<8;i++)n=n&1?0xedb88320^(n>>>1):n>>>1;return n>>>0;});
+function crc32(buffer){let c=0xffffffff;for(const b of buffer)c=crcTable[(c^b)&255]^(c>>>8);return(c^0xffffffff)>>>0;}
+const local=[],central=[];let offset=0;
+for(const name of allowed){const data=fs.readFileSync(path.join(out,name));const filename=Buffer.from(name);const crc=crc32(data);const lh=Buffer.alloc(30);lh.writeUInt32LE(0x04034b50,0);lh.writeUInt16LE(20,4);lh.writeUInt16LE(0x800,6);lh.writeUInt16LE(33,12);lh.writeUInt32LE(crc,14);lh.writeUInt32LE(data.length,18);lh.writeUInt32LE(data.length,22);lh.writeUInt16LE(filename.length,26);local.push(lh,filename,data);const ch=Buffer.alloc(46);ch.writeUInt32LE(0x02014b50,0);ch.writeUInt16LE(20,4);ch.writeUInt16LE(20,6);ch.writeUInt16LE(0x800,8);ch.writeUInt16LE(33,14);ch.writeUInt32LE(crc,16);ch.writeUInt32LE(data.length,20);ch.writeUInt32LE(data.length,24);ch.writeUInt16LE(filename.length,28);ch.writeUInt32LE(offset,42);central.push(ch,filename);offset+=lh.length+filename.length+data.length;}
+const centralData=Buffer.concat(central),end=Buffer.alloc(22);end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(allowed.length,8);end.writeUInt16LE(allowed.length,10);end.writeUInt32LE(centralData.length,12);end.writeUInt32LE(offset,16);
+const zipFile=path.join(root,'dist',`sheetdock-crm-${manifest.version}-${variant}.zip`);const bytes=Buffer.concat([...local,centralData,end]);fs.writeFileSync(zipFile,bytes);
+fs.writeFileSync(zipFile+'.sha256',crypto.createHash('sha256').update(bytes).digest('hex')+'\n');
+console.log(`Package created (${allowed.length} allowlisted files): ${path.relative(root,zipFile)}\nLoad unpacked: ${path.relative(root,out)}\n${clientId?'Google beta requires verified NEW public OAuth configuration and external QA.':'Local beta: Google sign-in is intentionally unavailable until publisher configuration.'}`);

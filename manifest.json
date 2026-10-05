@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "SheetDock CRM — contatos e planilhas",
+  "short_name": "SheetDock CRM",
+  "version": "0.1.0",
+  "description": "Organize contatos, campos e acompanhamentos ao lado do WhatsApp Web. Use dados locais ou sua própria planilha Google.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "identity"],
+  "host_permissions": ["https://sheets.googleapis.com/*"],
+  "icons": {"16":"icons/icon-16.png","48":"icons/icon-48.png","128":"icons/icon-128.png"},
+  "action": {"default_title":"Abrir SheetDock CRM","default_popup":"src/popup/popup.html"},
+  "options_ui": {"page":"src/dashboard/dashboard.html","open_in_tab":true},
+  "background": {"service_worker":"src/background.js","type":"module"},
+  "content_scripts": [{"matches":["https://web.whatsapp.com/*"],"js":["src/content.js"],"run_at":"document_idle"}],
+  "web_accessible_resources": [{"resources":["src/overlay/overlay.css"],"matches":["https://web.whatsapp.com/*"]}],
+  "content_security_policy": {"extension_pages":"script-src 'self'; object-src 'self'"}
+}
