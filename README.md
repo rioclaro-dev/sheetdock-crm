@@ -6,6 +6,8 @@ CRM configurável para trabalhar ao lado do WhatsApp Web. Seus contatos ficam no
 
 Nome provisório: **SheetDock CRM**. Código público: [rioclaro-dev/sheetdock-crm](https://github.com/rioclaro-dev/sheetdock-crm). Licença MIT, incluindo uso comercial.
 
+**Para retomar o desenvolvimento:** leia o [registro de continuidade](docs/CONTINUITY.md), com estado, evidências, decisões e próximas etapas. As [instruções do projeto](AGENTS.md) orientam o trabalho nesta base separada.
+
 ## O que você pode configurar
 
 - Campos de texto, parágrafo, número, data, opções, checkbox, e-mail, telefone e URL.
